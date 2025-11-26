@@ -1,12 +1,10 @@
-// server.js
+// server.js — окончательная версия
 const express = require('express');
 const multer = require('multer');
 const path = require('path');
 const cors = require('cors');
 
 const app = express();
-const PORT = process.env.PORT || 3003;
-
 app.use(cors());
 app.use('/files', express.static('files'));
 
@@ -24,44 +22,32 @@ const upload = multer({
   storage,
   limits: { fileSize: 10 * 1024 * 1024 },
   fileFilter: (req, file, cb) => {
-    const allowed = /jpeg|jpg|png|webp|gif/;
-    const valid = allowed.test(file.mimetype) && allowed.test(path.extname(file.originalname).toLowerCase());
-    cb(valid ? null : new Error('Только изображения!'), valid);
+    const allowed = /jpe?g|png|webp|gif/;
+    const ok = allowed.test(file.mimetype);
+    cb(ok ? null : new Error('Только изображения'), ok);
   }
 });
 
-// Главное исправление — генерируем URL динамически!
 app.post('/upload/:type(avatar|cover)/:uid', upload.single('file'), (req, res) => {
-  if (!req.file) {
-    return res.status(400).json({ error: 'Файл не загружен' });
-  }
+  if (!req.file) return res.status(400).json({ error: 'no file' });
 
   const { type, uid } = req.params;
   const ext = path.extname(req.file.originalname) || '.jpg';
-  
-  // ←←← ЭТО САМОЕ ГЛАВНОЕ ИСПРАВЛЕНИЕ
-  const protocol = req.protocol; // http или https
-  const host = req.get('host');  // 45.114.61.148:3003 или твой домен
-  const publicUrl = `${protocol}://${host}/files/${type}_${uid}${ext}`;
+  const url = `${req.protocol}://${req.get('host')}/files/${type}_${uid}${ext}`;
 
-  res.json({ url: publicUrl });
+  res.json({ url });
 });
 
-// Обработка ошибок
+// обработка ошибок
 app.use((err, req, res, next) => {
-  if (err instanceof multer.MulterError) {
-    if (err.code === 'LIMIT_FILE_SIZE') {
-      return res.status(400).json({ error: 'Файл больше 10 МБ' });
-    }
-  }
-  if (err.message === 'Только изображения!') {
-    return res.status(400).json({ error: err.message });
-  }
   console.error(err);
-  res.status(500).json({ error: 'Ошибка сервера' });
+  res.status(400).json({ error: err.message || 'upload error' });
 });
+
+// ←←← САМОЕ ВАЖНОЕ: порт берём из переменной или 3003
+const PORT = process.env.PORT || 3003;
 
 app.listen(PORT, '0.0.0.0', () => {
-  console.log(`Сервер запущен: http://45.114.61.148:${PORT}`);
-  console.log(`Загрузка: POST http://45.114.61.148:${PORT}/upload/avatar/123`);
+  console.log(`Сервер работает → http://45.114.61.148:${PORT}`);
+  console.log(`Фото: http://45.114.61.148:${PORT}/files/avatar_123.jpg`);
 });
