@@ -28,13 +28,17 @@ const upload = multer({
   }
 });
 
+// Публичный URL для картинок (обязательно с портом 3003, иначе фото не откроются в приложении)
+const PUBLIC_URL = process.env.PUBLIC_URL || 'http://45.114.61.148:3003';
+
 app.post('/upload/:type(avatar|cover)/:uid', upload.single('file'), (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'no file' });
 
   const { type, uid } = req.params;
   const ext = (path.extname(req.file.originalname) || '.jpg').toLowerCase();
   const filename = `${type}_${uid}${ext}`;
-  const url = `${req.protocol}://${req.get('host')}/files/${filename}`;
+  const base = PUBLIC_URL.replace(/\/$/, '');
+  const url = `${base}/files/${filename}`;
 
   res.json({ url, photoUrl: url });
 });
