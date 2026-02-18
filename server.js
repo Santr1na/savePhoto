@@ -19,12 +19,14 @@ const storage = multer.diskStorage({
   }
 });
 
+const IMAGE_EXT = /\.(jpe?g|png|webp|gif)$/i;
 const upload = multer({
   storage,
   limits: { fileSize: 10 * 1024 * 1024 },
   fileFilter: (req, file, cb) => {
-    const allowed = /jpe?g|png|webp|gif/;
-    const ok = allowed.test(file.mimetype);
+    const mimetypeOk = file.mimetype && (file.mimetype.startsWith('image/') || /jpe?g|png|webp|gif/.test(file.mimetype));
+    const extOk = file.originalname && IMAGE_EXT.test(file.originalname);
+    const ok = mimetypeOk || extOk;
     cb(ok ? null : new Error('Только изображения'), ok);
   }
 });
