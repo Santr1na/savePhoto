@@ -1,5 +1,5 @@
 // server.js — окончательная версия
-require('dotenv').config();
+try { require('dotenv').config(); } catch (e) { /* dotenv не установлен — используем process.env */ }
 const express = require('express');
 const multer = require('multer');
 const path = require('path');
