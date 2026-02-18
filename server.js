@@ -1,4 +1,5 @@
 // server.js — окончательная версия
+require('dotenv').config();
 const express = require('express');
 const multer = require('multer');
 const path = require('path');
