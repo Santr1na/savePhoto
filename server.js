@@ -32,10 +32,11 @@ app.post('/upload/:type(avatar|cover)/:uid', upload.single('file'), (req, res) =
   if (!req.file) return res.status(400).json({ error: 'no file' });
 
   const { type, uid } = req.params;
-  const ext = path.extname(req.file.originalname) || '.jpg';
-  const url = `${req.protocol}://${req.get('host')}/files/${type}_${uid}${ext}`;
+  const ext = (path.extname(req.file.originalname) || '.jpg').toLowerCase();
+  const filename = `${type}_${uid}${ext}`;
+  const url = `${req.protocol}://${req.get('host')}/files/${filename}`;
 
-  res.json({ url });
+  res.json({ url, photoUrl: url });
 });
 
 // обработка ошибок
