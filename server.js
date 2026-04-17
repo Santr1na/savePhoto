@@ -6,8 +6,26 @@ const path = require('path');
 const cors = require('cors');
 
 const app = express();
+// За reverse-proxy (nginx): корректный req.ip. Отключить: TRUST_PROXY=0
+{
+  const tp = process.env.TRUST_PROXY;
+  if (tp === undefined || tp === '1' || String(tp).toLowerCase() === 'true') {
+    app.set('trust proxy', 1);
+  }
+}
 app.use(cors());
 app.use('/files', express.static('files'));
+
+app.get('/health', (req, res) => {
+  const m = process.memoryUsage();
+  res.json({
+    status: 'ok',
+    uptimeSec: Math.floor(process.uptime()),
+    rssBytes: m.rss,
+    heapUsedBytes: m.heapUsed,
+    heapTotalBytes: m.heapTotal,
+  });
+});
 
 const storage = multer.diskStorage({
   destination: 'files/',
