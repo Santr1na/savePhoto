@@ -2,8 +2,10 @@
 try { require('dotenv').config(); } catch (e) { /* dotenv не установлен — используем process.env */ }
 const express = require('express');
 const multer = require('multer');
+const fs = require('fs');
 const path = require('path');
 const cors = require('cors');
+const sharp = require('sharp');
 
 const app = express();
 // За reverse-proxy (nginx): корректный req.ip. Отключить: TRUST_PROXY=0
@@ -14,7 +16,97 @@ const app = express();
   }
 }
 app.use(cors());
-app.use('/files', express.static('files'));
+
+function clampInt(v, min, max) {
+  const n = Number.parseInt(String(v || ''), 10);
+  if (!Number.isFinite(n)) return null;
+  return Math.max(min, Math.min(max, n));
+}
+
+function safeFilename(name) {
+  const base = path.basename(String(name || ''));
+  // Prevent path traversal and weird names.
+  if (!base || base.includes('..') || base.includes('/') || base.includes('\\')) return null;
+  return base;
+}
+
+function computeEtag(stat, paramsKey) {
+  // Weak ETag is enough; changes when file changes or params differ.
+  return `W/"${stat.size}-${Number(stat.mtimeMs)}-${paramsKey}"`;
+}
+
+app.get('/files/:filename', async (req, res) => {
+  const filename = safeFilename(req.params.filename);
+  if (!filename) return res.status(400).end();
+
+  const filePath = path.join(__dirname, 'files', filename);
+  let stat;
+  try {
+    stat = await fs.promises.stat(filePath);
+    if (!stat.isFile()) return res.status(404).end();
+  } catch (e) {
+    return res.status(404).end();
+  }
+
+  const w = clampInt(req.query.w, 1, 4096);
+  const h = clampInt(req.query.h, 1, 4096);
+  const q = clampInt(req.query.q, 40, 95) ?? 86;
+  const fmtRaw = String(req.query.fmt || '').toLowerCase();
+  const wantsTransform = Boolean(w || h || fmtRaw);
+
+  // Default behavior: if no params, serve original file as-is (compat).
+  if (!wantsTransform) {
+    res.setHeader('Cache-Control', 'public, max-age=86400');
+    res.setHeader('ETag', computeEtag(stat, 'orig'));
+    if (req.headers['if-none-match'] === res.getHeader('ETag')) return res.status(304).end();
+    return res.sendFile(filePath);
+  }
+
+  const ext = path.extname(filename).toLowerCase();
+  const isImage = /\.(jpe?g|png|webp)$/i.test(ext);
+  if (!isImage) {
+    return res.status(415).json({ error: 'unsupported' });
+  }
+
+  const fmt = (fmtRaw === 'jpg' || fmtRaw === 'jpeg' || fmtRaw === 'png' || fmtRaw === 'webp' || fmtRaw === 'avif')
+    ? fmtRaw
+    : 'webp';
+
+  const paramsKey = `w=${w || ''}&h=${h || ''}&q=${q}&fmt=${fmt}`;
+  res.setHeader('Cache-Control', 'public, max-age=604800, stale-while-revalidate=86400');
+  res.setHeader('ETag', computeEtag(stat, paramsKey));
+  if (req.headers['if-none-match'] === res.getHeader('ETag')) return res.status(304).end();
+
+  // Output content-type.
+  if (fmt === 'jpg') res.type('jpeg');
+  else res.type(fmt);
+
+  try {
+    let pipeline = sharp(filePath, { failOn: 'none' });
+    if (w || h) {
+      pipeline = pipeline.resize({
+        width: w || undefined,
+        height: h || undefined,
+        fit: 'inside',
+        withoutEnlargement: true,
+      });
+    }
+    if (fmt === 'webp') pipeline = pipeline.webp({ quality: q });
+    else if (fmt === 'avif') pipeline = pipeline.avif({ quality: q });
+    else if (fmt === 'png') pipeline = pipeline.png({ compressionLevel: 9 });
+    else pipeline = pipeline.jpeg({ quality: q, mozjpeg: true });
+
+    pipeline.on('error', (e) => {
+      console.error('sharp pipeline error', e);
+      if (!res.headersSent) res.status(500).end();
+    });
+
+    pipeline.pipe(res);
+  } catch (e) {
+    console.error('transform error', e);
+    res.status(500).end();
+  }
+});
 
 app.get('/health', (req, res) => {
   const m = process.memoryUsage();
